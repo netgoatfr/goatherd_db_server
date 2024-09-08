@@ -113,12 +113,14 @@ func handlePost(db *badger.DB, key string, perms TokenPermissions, w http.Respon
 			}
 		}
 		// Store the file path in BadgerDB
+		perms.CurrentlyStoredSize = size
 		value = []byte(blobPrefix + blobFile)
 	} else {
 		value = append([]byte(normalPrefix), buffer...)
 	}
 
 	// Store the value or file path in the database
+
 	err := db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(key), value)
 	})
