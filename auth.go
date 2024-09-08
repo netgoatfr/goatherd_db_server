@@ -21,7 +21,7 @@ func genToken() string {
 	return uniuri.NewLen(30) + "-" + uniuri.NewLen(30) + "-" + uniuri.NewLen(30)
 }
 
-var authDBToken = "auth" //genToken()
+var authDBToken = genToken()
 var authDBTokenPermissions = TokenPermissions{
 	Databases:      []string{"auth"},
 	Readonly:       false,
