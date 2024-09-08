@@ -13,9 +13,10 @@ import (
 )
 
 var (
-	databases = make(map[string]*badger.DB)
-	dbLock    sync.RWMutex
-	blobDir   = "dbs/blobs" // Directory to store large data blobs
+	databases       = make(map[string]*badger.DB)
+	dbLock          sync.RWMutex
+	storageLocation = "dbs/"
+	blobDir         = storageLocation + "blobs" // Directory to store large data blobs
 )
 var authDB *badger.DB
 
@@ -36,7 +37,13 @@ func databaseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Ensure authentication is performed
-	token := r.Header.Get("Authorization")
+	var token string
+	token = r.Header.Get("Authorization")
+	if token == "" {
+		if len(strings.Split(r.RequestURI, "?")) > 1 {
+			token = strings.Split(r.RequestURI, "?")[1]
+		}
+	}
 	if token == "" {
 		http.Error(w, "Missing Authorization token", http.StatusUnauthorized)
 		return
@@ -113,7 +120,7 @@ func getDatabase(name string) (*badger.DB, error) {
 	}
 
 	// Open or create BadgerDB
-	opts := badger.DefaultOptions("dbs/" + fmt.Sprintf("%s.db", name)).WithLogger(nil)
+	opts := badger.DefaultOptions(storageLocation + fmt.Sprintf("%s.db", name)).WithLogger(nil)
 	newDB, err := badger.Open(opts)
 	if err != nil {
 		return nil, err
@@ -126,7 +133,7 @@ func getDatabase(name string) (*badger.DB, error) {
 func main() {
 	fmt.Println("Auth db token: ", authDBToken)
 	var err error
-	authDB, err = badger.Open(badger.DefaultOptions("dbs/auth.db").WithLogger(nil))
+	authDB, err = badger.Open(badger.DefaultOptions(storageLocation + "auth.db").WithLogger(nil))
 	if err != nil {
 		log.Fatal(err)
 	}

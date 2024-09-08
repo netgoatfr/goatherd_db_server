@@ -15,6 +15,8 @@ You may also have an item number limit, or a max size.
 *  /&lt;db_name&gt;/&lt;key&gt; (Method:POST) if your token can access this database, and is NOT read-only, will set the content of the key &quot;&lt;key&gt;&quot; to the post request body.
 *  /&lt;db_name&gt;/&lt;key&gt; (Method:DELETE) if your token can access this database, and is NOT read-only, will remove the key &quot;&lt;key&gt;&quot; from the database.
 
+To add the token as authentification, add the 'Authorization' header with the token as value, or add `?<token>` at the end of the url.
+
 If an endpoint return an error, the error is described in the response body, and the status code is set accordingly.
 Entirely made by [netgoatfr](https://discord.com/users/923609465637470218)
 # HAVE A FANTASTIC DAY !

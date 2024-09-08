@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -29,19 +30,32 @@ func NewRateLimiter(limit int, window time.Duration) *RateLimiter {
 func (rl *RateLimiter) Limit(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Check for the special header
-		token := r.Header.Get("Authorization")
-		perms, _ := getTokenPermissions(authDB, token)
-
 		var limit int
-		if perms.Ratelimit < 0 { // If rate limit is below zero (-1) then no limit
-			next.ServeHTTP(w, r) // don't even bother registering the client
-			return
-		} else if perms.Ratelimit == 0 {
-			limit = rl.limit // Standard limit
-		} else {
-			limit = perms.Ratelimit
+		var token string
+		token = r.Header.Get("Authorization")
+		if token == "" {
+			if len(strings.Split(r.RequestURI, "?")) > 1 {
+				token = strings.Split(r.RequestURI, "?")[1]
+			}
 		}
+		if token == "" {
+			limit = rl.limit
+		} else {
+			perms, err := getTokenPermissions(authDB, token)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 
+			if perms.Ratelimit < 0 { // If rate limit is below zero (-1) then no limit
+				next.ServeHTTP(w, r) // don't even bother registering the client
+				return
+			} else if perms.Ratelimit == 0 {
+				limit = rl.limit // Standard limit
+			} else {
+				limit = perms.Ratelimit
+			}
+		}
 		clientIP := r.RemoteAddr
 		rl.mu.Lock()
 		defer rl.mu.Unlock()

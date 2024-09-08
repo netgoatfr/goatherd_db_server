@@ -16,7 +16,7 @@ const blobPrefix = "BLOB__"
 const normalPrefix = "VALUE_"
 
 // Retrieve a key from the database, stream blob if the value is a file path
-func handleGet(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
+func handleGet(db *badger.DB, key string, _ TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	var value []byte
 
 	// Get the value from the database
@@ -58,7 +58,7 @@ func handleGet(db *badger.DB, key string, perms TokenPermissions, w http.Respons
 		// Stream the file content directly to the response without loading it all into memory
 		_, err = io.Copy(w, file)
 		if err != nil {
-			http.Error(w, "Failed to stream blob", http.StatusInternalServerError)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	} else if prefix == normalPrefix {
@@ -68,44 +68,69 @@ func handleGet(db *badger.DB, key string, perms TokenPermissions, w http.Respons
 
 // Set a key-value pair in the database, store large data as blobs
 func handlePost(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, r *http.Request) {
-	value, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
+	buffer := make([]byte, 4096) // Read in chunks of 1KB
+	n, _ := r.Body.Read(buffer)
+	buffer = buffer[:n] // Remove unwanted null bytes.
+	defer r.Body.Close()
+	var value []byte
+	// If the value is large, store it as a blob in the filesystem
+	var max_possible_size = perms.MaxStoringSize - perms.CurrentlyStoredSize
+	if len(buffer) > max_possible_size {
+		http.Error(w, "This token can not store any more data.", http.StatusForbidden)
 		return
 	}
-	defer r.Body.Close()
-
-	// If the value is large, store it as a blob in the filesystem
-	if len(value) > 1024 { // For example, values > 1KB are treated as blobs
+	if len(buffer) > 1024 { // For example, values > 1KB are treated as blobs
 		blobFile := filepath.Join(blobDir, key)
-
-		// Write the blob to the filesystem
-		err = os.WriteFile(blobFile, value, os.ModePerm)
+		file, err := os.OpenFile(blobFile, os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			http.Error(w, "Failed to write blob", http.StatusInternalServerError)
+			http.Error(w, "Failed to write blob: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		var size int
 
+		// Write the blob to the filesystem
+		for {
+			size += n
+			if size >= max_possible_size {
+				http.Error(w, "This token can not store any more data.", http.StatusForbidden)
+				file.Close()
+				os.Remove(blobFile)
+				return
+			}
+			file.Write(buffer) // Write the buffer to the file
+
+			// get new buffer
+			n, err = r.Body.Read(buffer)
+			if err != nil {
+				if err == io.EOF {
+					// End of body
+					file.Close()
+					break
+				}
+				http.Error(w, "Failed to write blob: "+err.Error(), http.StatusInternalServerError)
+				file.Close()
+				return
+			}
+		}
 		// Store the file path in BadgerDB
 		value = []byte(blobPrefix + blobFile)
 	} else {
-		value = append([]byte(normalPrefix), value...)
+		value = append([]byte(normalPrefix), buffer...)
 	}
 
 	// Store the value or file path in the database
-	err = db.Update(func(txn *badger.Txn) error {
+	err := db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(key), value)
 	})
 	if err != nil {
 		http.Error(w, "Failed to set key: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
 	w.WriteHeader(http.StatusOK)
 }
 
 // Delete a key and its corresponding blob (if exists)
-func handleDelete(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
+func handleDelete(db *badger.DB, key string, _ TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	// First, check if the key exists and if it points to a blob
 	var value []byte
 	err := db.View(func(txn *badger.Txn) error {
@@ -148,7 +173,7 @@ func handleDelete(db *badger.DB, key string, perms TokenPermissions, w http.Resp
 }
 
 // Delete a key and its corresponding blob (if exists)
-func handleList(db *badger.DB, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
+func handleList(db *badger.DB, _ TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	// First, check if the key exists and if it points to a blob
 	var keys []string
 	err := db.View(func(txn *badger.Txn) error {
@@ -178,10 +203,15 @@ func handleList(db *badger.DB, perms TokenPermissions, w http.ResponseWriter, _ 
 // Middleware to authenticate based on the token for the database
 func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		token := r.Header.Get("Authorization")
+		var token string
+		token = r.Header.Get("Authorization")
 		if token == "" {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
-			return
+			if len(strings.Split(r.RequestURI, "?")) > 1 {
+				token = strings.Split(r.RequestURI, "?")[1]
+			} else {
+				http.Error(w, "Unauthorized", http.StatusUnauthorized)
+				return
+			}
 		}
 
 		// Extract db name from the path
