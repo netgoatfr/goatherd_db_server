@@ -16,7 +16,7 @@ const blobPrefix = "BLOB__"
 const normalPrefix = "VALUE_"
 
 // Retrieve a key from the database, stream blob if the value is a file path
-func handleGet(db *badger.DB, key string, w http.ResponseWriter, _ *http.Request) {
+func handleGet(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	var value []byte
 
 	// Get the value from the database
@@ -67,7 +67,7 @@ func handleGet(db *badger.DB, key string, w http.ResponseWriter, _ *http.Request
 }
 
 // Set a key-value pair in the database, store large data as blobs
-func handlePost(db *badger.DB, key string, w http.ResponseWriter, r *http.Request) {
+func handlePost(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, r *http.Request) {
 	value, err := io.ReadAll(r.Body)
 	if err != nil {
 		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
@@ -105,7 +105,7 @@ func handlePost(db *badger.DB, key string, w http.ResponseWriter, r *http.Reques
 }
 
 // Delete a key and its corresponding blob (if exists)
-func handleDelete(db *badger.DB, key string, w http.ResponseWriter, _ *http.Request) {
+func handleDelete(db *badger.DB, key string, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	// First, check if the key exists and if it points to a blob
 	var value []byte
 	err := db.View(func(txn *badger.Txn) error {
@@ -148,7 +148,7 @@ func handleDelete(db *badger.DB, key string, w http.ResponseWriter, _ *http.Requ
 }
 
 // Delete a key and its corresponding blob (if exists)
-func handleList(db *badger.DB, w http.ResponseWriter, _ *http.Request) {
+func handleList(db *badger.DB, perms TokenPermissions, w http.ResponseWriter, _ *http.Request) {
 	// First, check if the key exists and if it points to a blob
 	var keys []string
 	err := db.View(func(txn *badger.Txn) error {
@@ -194,7 +194,7 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		dbName := parts[0]
 
 		// Authenticate the token for the current database
-		err := authenticate(authDB, token, dbName)
+		_, err := authenticate(authDB, token, dbName)
 		if err != nil {
 			http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 			return

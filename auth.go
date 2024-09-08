@@ -8,11 +8,12 @@ import (
 	"github.com/dgraph-io/badger/v3"
 )
 
-// Structure to represent token permissions (which databases a token can access)
+// Structure to represent token permissions
 type TokenPermissions struct {
-	Databases []string `json:"databases"`
-	Ratelimit int      `json:"ratelimit"` // 0: default; -1: No limit; more than 0: this number
-	Readonly  bool     `json:"Readonly"`
+	Databases      []string `json:"databases"`
+	Ratelimit      int      `json:"ratelimit"` // 0: default; -1: No limit; more than 0: this number
+	Readonly       bool     `json:"Readonly"`
+	MaxStoringSize int64    `json:"MaxStoringSize"` // Default is 1GB
 }
 
 func genToken() string {
@@ -25,6 +26,7 @@ var authDBToken = genToken()
 func getTokenPermissions(authDB *badger.DB, token string) (TokenPermissions, error) {
 	var permissions TokenPermissions = TokenPermissions{
 		Databases: []string{},
+		MaxStoringSize: 1024 * 1024 * 1024
 	}
 
 	// Check if the token exists in the authDB
@@ -53,7 +55,7 @@ func getTokenPermissions(authDB *badger.DB, token string) (TokenPermissions, err
 }
 
 // Middleware function to authenticate based on the token and requested database
-func authenticate(authDB *badger.DB, token, dbName string) error {
+func authenticate(authDB *badger.DB, token, dbName string) (TokenPermissions, error) {
 	if token == authDBToken {
 		// Allow access only to the 'auth' database for the default admin token
 		if dbName == "auth" {
@@ -64,15 +66,15 @@ func authenticate(authDB *badger.DB, token, dbName string) error {
 
 	permissions, err := getTokenPermissions(authDB, token)
 	if err != nil {
-		return err // Token not found or invalid
+		return nil,err // Token not found or invalid
 	}
 
 	// Check if the token allows access to the requested database
 	for _, allowedDB := range permissions.Databases {
 		if allowedDB == dbName {
-			return nil // Token is authorized for this database
+			return permissions,nil // Token is authorized for this database
 		}
 	}
 
-	return errors.New("token not authorized for this database")
+	return nil,errors.New("token not authorized for this database")
 }

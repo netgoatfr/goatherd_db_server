@@ -43,7 +43,8 @@ func databaseHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Authenticate token and determine access
-	if err := authenticate(authDB, token, dbName); err != nil {
+	perms, err := authenticate(authDB, token, dbName)
+	if err != nil {
 		http.Error(w, "Unauthorized: "+err.Error(), http.StatusUnauthorized)
 		return
 	}
@@ -70,18 +71,26 @@ func databaseHandler(w http.ResponseWriter, r *http.Request) {
 
 	//Handle list operation (get operation on the db itself)
 	if key == "" && r.Method == http.MethodGet {
-		handleList(db, w, r)
+		handleList(db, perms, w, r)
 		return
 	}
 
 	// Handle GET, POST, DELETE operations on the selected database
 	switch r.Method {
 	case http.MethodGet:
-		handleGet(db, key, w, r)
+		handleGet(db, key, perms, w, r)
 	case http.MethodPost:
-		handlePost(db, key, w, r)
+		if !perms.Readonly {
+			handlePost(db, key, perms, w, r)
+		} else {
+			http.Error(w, "Method not allowed (Token is readonly)", http.StatusMethodNotAllowed)
+		}
 	case http.MethodDelete:
-		handleDelete(db, key, w, r)
+		if !perms.Readonly {
+			handleDelete(db, key, perms, w, r)
+		} else {
+			http.Error(w, "Method not allowed (Token is readonly)", http.StatusMethodNotAllowed)
+		}
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
