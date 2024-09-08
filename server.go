@@ -51,7 +51,6 @@ func databaseHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Access the requested database
 	var db *badger.DB
-	var err error
 	if dbName == "auth" {
 		db = authDB
 	} else {
